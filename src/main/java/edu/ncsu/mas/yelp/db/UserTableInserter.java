@@ -9,6 +9,7 @@ import java.sql.Date;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -45,33 +46,69 @@ public class UserTableInserter implements AutoCloseable {
 
   private final DateFormat dateFormatter = new SimpleDateFormat("yyyy-MM");
 
-  public void addToBatch(JSONObject jsonOb) throws SQLException, JSONException, ParseException {
-    try (PreparedStatement prpdStmt = mConn.prepareStatement(insertQuery)) {
-      prpdStmt.setString(1, jsonOb.getString("user_id"));
-      prpdStmt.setString(2, jsonOb.getString("name"));
-      prpdStmt.setDate(3,
-          new Date(dateFormatter.parse(jsonOb.getString("yelping_since")).getTime()));
-      prpdStmt.setInt(4, jsonOb.getInt("review_count"));
-      prpdStmt.setInt(5, jsonOb.getInt("fans"));
-      prpdStmt.setString(6, jsonOb.getString("type"));
-      prpdStmt.setDouble(7, jsonOb.getDouble("average_stars"));
-      
-      prpdStmt.setInt(8, jsonOb.getInt("votes_funny_usr"));
+  private void prepareStatment(PreparedStatement prpdStmt, JSONObject userOb) throws JSONException,
+      SQLException, ParseException {
+    prpdStmt.clearParameters();
+
+    prpdStmt.setString(1, userOb.getString("user_id"));
+    prpdStmt.setString(2, userOb.getString("name"));
+    prpdStmt.setDate(3, new Date(dateFormatter.parse(userOb.getString("yelping_since")).getTime()));
+    prpdStmt.setInt(4, userOb.getInt("review_count"));
+    prpdStmt.setInt(5, userOb.getInt("fans"));
+    prpdStmt.setString(6, userOb.getString("type"));
+    prpdStmt.setDouble(7, userOb.getDouble("average_stars"));
+
+    JSONObject votesOb = userOb.getJSONObject("votes");
+    String[] voteTypes = { "funny", "useful", "cool" };
+    for (int i = 8; i <= 10; i++) {
+      if (votesOb.has(voteTypes[i - 8])) {
+        prpdStmt.setInt(i, votesOb.getInt(voteTypes[i - 8]));
+      } else {
+        prpdStmt.setNull(i, Types.INTEGER);
+      }
+    }
+
+    JSONObject complimentsOb = userOb.getJSONObject("votes");
+    String[] complimentTypes = { "profile", "cute", "funny", "plain", "writer", "note", "photos",
+        "hot", "cool", "more" };
+    for (int i = 11; i <= 10; i++) {
+      if (complimentsOb.has(complimentTypes[i - 8])) {
+        prpdStmt.setInt(i, complimentsOb.getInt(complimentTypes[i - 8]));
+      } else {
+        prpdStmt.setNull(i, Types.INTEGER);
+      }
+    }
+  }
+
+  public void insert(String filename) throws FileNotFoundException, IOException, SQLException,
+      JSONException, ParseException {
+    mConn.setAutoCommit(false);
+    try (BufferedReader br = new BufferedReader(new FileReader(filename));
+        PreparedStatement prpdStmt = mConn.prepareStatement(insertQuery)) {
+      // Each line is in json format (e.g., resources/user_sample.json)
+      int insertedSoFar = 0;
+      for (String line = br.readLine(); line != null; line = br.readLine()) {
+        JSONObject jsonOb = new JSONObject(line);
+        prepareStatment(prpdStmt, jsonOb);
+        prpdStmt.addBatch();
+        if (++insertedSoFar % 10000 == 0) {
+          prpdStmt.executeUpdate();
+          mConn.commit();
+          System.out.println("Inserted so far: " + insertedSoFar);
+        }
+      }
+      prpdStmt.executeUpdate(); // Left overs
+      mConn.commit();
     }
   }
 
   public static void main(String[] args) throws InstantiationException, IllegalAccessException,
-      ClassNotFoundException, SQLException, FileNotFoundException, IOException {
+      ClassNotFoundException, SQLException, FileNotFoundException, IOException, JSONException,
+      ParseException {
     String dbUrl = args[0];
     String inFilename = args[1];
-
-    try (BufferedReader br = new BufferedReader(new FileReader(inFilename));
-        UserTableInserter inserter = new UserTableInserter(dbUrl)) {
-      inserter.mConn.setAutoCommit(false);
-      // Each line is in json format (e.g., resources/user_sample.json)
-      for (String line = br.readLine(); line != null; line = br.readLine()) {
-        JSONObject jsonOb = new JSONObject(line);
-      }
+    try (UserTableInserter inserter = new UserTableInserter(dbUrl)) {
+      inserter.insert(inFilename);
     }
   }
 }

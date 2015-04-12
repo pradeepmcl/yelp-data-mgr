@@ -22,3 +22,19 @@ CREATE TABLE User (
   compliments_more_usr MEDIUMINT,
   PRIMARY KEY(id_usr)
 );
+
+CREATE TABLE Business (
+  id_bus MEDIUMINT NOT NULL AUTO_INCREMENT,
+  id_original_bus VARCHAR(30) NOT NULL,
+  name_bus VARCHAR(80) NOT NULL,
+  type_bus VARCHAR(20) NOT NULL,
+  city_bus VARCHAR(50) NOT NULL,
+  state_bus VARCHAR(3) NOT NULL,
+  address_bus VARCHAR(60),
+  open_bus TINYINT(1) NOT NULL,
+  review_count_bus MEDIUMINT NOT NULL,
+  stars_bus FLOAT(2,1) NOT NULL,
+  latitude_bus FLOAT(11,8) NOT NULL,
+  longitude_bus FLOAT(11,8) NOT NULL,
+  PRIMARY KEY(id_bus)
+);

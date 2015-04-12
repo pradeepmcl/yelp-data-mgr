@@ -1,0 +1,67 @@
+{
+  "business_id": "wtUaFgHGHnopdYh5m-a25Q",
+  "full_address": "4709 Sharon Rd\nSouth Park\nCharlotte, NC 28210",
+  "hours": {
+    
+  },
+  "open": true,
+  "categories": [
+    "Burgers",
+    "Restaurants"
+  ],
+  "city": "Charlotte",
+  "review_count": 6,
+  "name": "Burger King",
+  "neighborhoods": [
+    "South Park"
+  ],
+  "longitude": -80.830010175704999,
+  "state": "NC",
+  "stars": 2.5,
+  "latitude": 35.1489946559782,
+  "attributes": {
+    "Take-out": true,
+    "Wi-Fi": "free",
+    "Drive-Thru": true,
+    "Good For": {
+      "dessert": false,
+      "latenight": false,
+      "lunch": false,
+      "dinner": false,
+      "brunch": false,
+      "breakfast": false
+    },
+    "Caters": false,
+    "Noise Level": "loud",
+    "Takes Reservations": false,
+    "Delivery": false,
+    "Ambience": {
+      "romantic": false,
+      "intimate": false,
+      "classy": false,
+      "hipster": false,
+      "divey": false,
+      "touristy": false,
+      "trendy": false,
+      "upscale": false,
+      "casual": true
+    },
+    "Parking": {
+      "garage": false,
+      "street": false,
+      "validated": false,
+      "lot": false,
+      "valet": false
+    },
+    "Has TV": false,
+    "Outdoor Seating": true,
+    "Attire": "casual",
+    "Alcohol": "none",
+    "Waiter Service": false,
+    "Accepts Credit Cards": true,
+    "Good for Kids": true,
+    "Good For Groups": true,
+    "Price Range": 1
+  },
+  "type": "business"
+}

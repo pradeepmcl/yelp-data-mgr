@@ -46,54 +46,6 @@ public class YelpDbInserter implements AutoCloseable {
       + "compliments_photos_usr, compliments_hot_usr, compliments_cool_usr, compliments_more_usr) "
       + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-  private String getInsertQuery(String tableName) {
-    tableName = tableName.toLowerCase();
-    switch (tableName) {
-    case "user":
-      return userInsertQuery;
-    default:
-      throw new IllegalArgumentException("Unknown table: " + tableName);
-    }
-  }
-
-  private void setParameterValues(String tableName, PreparedStatement prpdStmt, JSONObject userOb)
-      throws JSONException, SQLException, ParseException {
-    tableName = tableName.toLowerCase();
-    switch (tableName) {
-    case "user":
-      setUserParameterValues(prpdStmt, userOb);
-      break;
-    default:
-      throw new IllegalArgumentException("Unknown table: " + tableName);
-    }
-  }
-
-  public void insert(String filename, String tableName) throws FileNotFoundException, IOException,
-      SQLException, JSONException, ParseException {
-    mConn.setAutoCommit(false);
-
-    String insertQuery = getInsertQuery(tableName);
-
-    try (BufferedReader br = new BufferedReader(new FileReader(filename));
-        PreparedStatement prpdStmt = mConn.prepareStatement(insertQuery)) {
-      // Each line is in json format (e.g., resources/user_sample.json)
-      int insertedSoFar = 0;
-      for (String line = br.readLine(); line != null; line = br.readLine()) {
-        JSONObject jsonOb = new JSONObject(line);
-        setParameterValues(tableName, prpdStmt, jsonOb);
-        prpdStmt.addBatch();
-        if (insertedSoFar++ % 20000 == 0) {
-          prpdStmt.executeBatch();
-          mConn.commit();
-          System.out.println("Inserted so far: " + insertedSoFar);
-        }
-      }
-      prpdStmt.executeBatch(); // Left overs
-      mConn.commit();
-      mConn.setAutoCommit(true);
-    }
-  }
-
   private void setUserParameterValues(PreparedStatement prpdStmt, JSONObject userOb)
       throws JSONException, SQLException, ParseException {
     prpdStmt.setString(1, userOb.getString("user_id"));
@@ -123,6 +75,81 @@ public class YelpDbInserter implements AutoCloseable {
       } else {
         prpdStmt.setNull(i, Types.INTEGER);
       }
+    }
+  }
+  
+  private final String businessInsertQuery = "INSERT INTO Business(id_original_bus, name_bus, "
+      + "type_bus, city_bus, state_bus, address_bus, open_bus, review_count_bus, stars_bus, "
+      + "latitude_bus, longitude_bus) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  
+  private void setBusinessParameterValues(PreparedStatement prpdStmt, JSONObject busOb)
+      throws JSONException, SQLException, ParseException {
+    String[] fieldNames = { "business_id", "name", "type", "city", "state" };
+    for (int i = 0; i < fieldNames.length; i++) {
+      prpdStmt.setString(i+1, busOb.getString(fieldNames[i]));
+    }
+    
+    if (busOb.has("address")) {
+      prpdStmt.setString(6, busOb.getString("address"));
+    } else {
+      prpdStmt.setNull(6, Types.VARCHAR);
+    }
+    
+    prpdStmt.setBoolean(7, busOb.getBoolean("open"));
+    prpdStmt.setInt(8, busOb.getInt("review_count"));
+    prpdStmt.setDouble(9, busOb.getDouble("stars"));
+    prpdStmt.setDouble(10, busOb.getDouble("latitude"));
+    prpdStmt.setDouble(11, busOb.getDouble("longitude"));
+  }
+  
+  private String getInsertQuery(String tableName) {
+    tableName = tableName.toLowerCase();
+    switch (tableName) {
+    case "user":
+      return userInsertQuery;
+    case "business":
+      return businessInsertQuery;
+    default:
+      throw new IllegalArgumentException("Unknown table: " + tableName);
+    }
+  }
+
+  private void setParameterValues(String tableName, PreparedStatement prpdStmt, JSONObject jsonOb)
+      throws JSONException, SQLException, ParseException {
+    tableName = tableName.toLowerCase();
+    switch (tableName) {
+    case "user":
+      setUserParameterValues(prpdStmt, jsonOb);
+      break;
+    case "business":
+      setBusinessParameterValues(prpdStmt, jsonOb);
+      break;
+    default:
+      throw new IllegalArgumentException("Unknown table: " + tableName);
+    }
+  }
+
+  public void insert(String filename, String tableName) throws FileNotFoundException, IOException,
+      SQLException, JSONException, ParseException {
+    mConn.setAutoCommit(false);
+
+    try (BufferedReader br = new BufferedReader(new FileReader(filename));
+        PreparedStatement prpdStmt = mConn.prepareStatement(getInsertQuery(tableName))) {
+      // Each line is in json format (e.g., resources/user_sample.json)
+      int insertedSoFar = 0;
+      for (String line = br.readLine(); line != null; line = br.readLine()) {
+        JSONObject jsonOb = new JSONObject(line);
+        setParameterValues(tableName, prpdStmt, jsonOb);
+        prpdStmt.addBatch();
+        if (insertedSoFar++ % 10000 == 0) {
+          prpdStmt.executeBatch();
+          mConn.commit();
+          System.out.println("Inserted so far: " + insertedSoFar);
+        }
+      }
+      prpdStmt.executeBatch(); // Left overs
+      mConn.commit();
+      mConn.setAutoCommit(true);
     }
   }
 

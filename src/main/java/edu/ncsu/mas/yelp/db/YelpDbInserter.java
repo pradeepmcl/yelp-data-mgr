@@ -8,11 +8,14 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -37,7 +40,7 @@ public class YelpDbInserter implements AutoCloseable {
     }
   }
 
-  private final DateFormat dateFormatter = new SimpleDateFormat("yyyy-MM");
+  private final DateFormat userDateFormatter = new SimpleDateFormat("yyyy-MM");
 
   private final String userInsertQuery = "INSERT INTO User(id_original_usr, name_usr, "
       + "yelping_since_usr, review_count_usr, fans_usr, type_usr, avg_stars_usr, votes_funny_usr, "
@@ -46,11 +49,11 @@ public class YelpDbInserter implements AutoCloseable {
       + "compliments_photos_usr, compliments_hot_usr, compliments_cool_usr, compliments_more_usr) "
       + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-  private void setUserParameterValues(PreparedStatement prpdStmt, JSONObject userOb)
+  private boolean setUserParameterValues(PreparedStatement prpdStmt, JSONObject userOb)
       throws JSONException, SQLException, ParseException {
     prpdStmt.setString(1, userOb.getString("user_id"));
     prpdStmt.setString(2, userOb.getString("name"));
-    prpdStmt.setDate(3, new Date(dateFormatter.parse(userOb.getString("yelping_since")).getTime()));
+    prpdStmt.setDate(3, new Date(userDateFormatter.parse(userOb.getString("yelping_since")).getTime()));
     prpdStmt.setInt(4, userOb.getInt("review_count"));
     prpdStmt.setInt(5, userOb.getInt("fans"));
     prpdStmt.setString(6, userOb.getString("type"));
@@ -76,13 +79,15 @@ public class YelpDbInserter implements AutoCloseable {
         prpdStmt.setNull(i, Types.INTEGER);
       }
     }
+    
+    return true;
   }
   
   private final String businessInsertQuery = "INSERT INTO Business(id_original_bus, name_bus, "
       + "type_bus, city_bus, state_bus, address_bus, open_bus, review_count_bus, stars_bus, "
       + "latitude_bus, longitude_bus) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
   
-  private void setBusinessParameterValues(PreparedStatement prpdStmt, JSONObject busOb)
+  private boolean setBusinessParameterValues(PreparedStatement prpdStmt, JSONObject busOb)
       throws JSONException, SQLException, ParseException {
     String[] fieldNames = { "business_id", "name", "type", "city", "state" };
     for (int i = 0; i < fieldNames.length; i++) {
@@ -100,6 +105,39 @@ public class YelpDbInserter implements AutoCloseable {
     prpdStmt.setDouble(9, busOb.getDouble("stars"));
     prpdStmt.setDouble(10, busOb.getDouble("latitude"));
     prpdStmt.setDouble(11, busOb.getDouble("longitude"));
+    
+    return true;
+  }
+  
+  private final DateFormat reviewDateFormatter = new SimpleDateFormat("yyyy-MM-dd");
+  
+  private final String reviewInsertQuery = "INSERT INTO Review_XX(id_original_raz, user_id_raz, "
+      + "bus_id_raz, date_raz, type_raz, stars_raz, votes_funny_raz, votes_useful_raz, "
+      + "votes_cool_raz, text_raz) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  
+  private boolean setReviewParameterValues(PreparedStatement prpdStmt, JSONObject reviewOb,
+      Map<String, Integer> userIdMap, Map<String, Integer> busIdMap) throws JSONException,
+      SQLException, ParseException {
+    if (!busIdMap.containsKey(reviewOb.get("business_id"))) {
+      return false;
+    }
+    
+    prpdStmt.setString(1, reviewOb.getString("review_id"));
+    prpdStmt.setInt(2, userIdMap.get(reviewOb.get("user_id")));
+    prpdStmt.setInt(3, busIdMap.get(reviewOb.get("business_id")));
+    prpdStmt.setDate(4, new Date(reviewDateFormatter.parse(reviewOb.getString("date")).getTime()));
+    prpdStmt.setString(5, reviewOb.getString("type"));
+    prpdStmt.setDouble(6, reviewOb.getDouble("stars"));
+    
+    JSONObject votesOb = reviewOb.getJSONObject("votes");
+    String[] voteTypes = { "funny", "useful", "cool" };
+    for (int i = 7; i <= 9; i++) {
+      prpdStmt.setInt(i, votesOb.getInt(voteTypes[i - 7]));
+    }
+    
+    prpdStmt.setString(10, reviewOb.getString("text"));
+    
+    return true;
   }
   
   private String getInsertQuery(String tableName) {
@@ -109,42 +147,101 @@ public class YelpDbInserter implements AutoCloseable {
       return userInsertQuery;
     case "business":
       return businessInsertQuery;
+    case "review_az":
+      return reviewInsertQuery.replaceFirst("Review_XX", "Review_AZ");
+    case "review_nv":
+      return reviewInsertQuery.replaceFirst("Review_XX", "Review_NV");
+    case "review_nc":
+      return reviewInsertQuery.replaceFirst("Review_XX", "Review_NC");
     default:
       throw new IllegalArgumentException("Unknown table: " + tableName);
     }
   }
 
-  private void setParameterValues(String tableName, PreparedStatement prpdStmt, JSONObject jsonOb)
+  private boolean setParameterValues(String tableName, PreparedStatement prpdStmt, JSONObject jsonOb)
       throws JSONException, SQLException, ParseException {
     tableName = tableName.toLowerCase();
     switch (tableName) {
     case "user":
-      setUserParameterValues(prpdStmt, jsonOb);
-      break;
+      return setUserParameterValues(prpdStmt, jsonOb);
     case "business":
-      setBusinessParameterValues(prpdStmt, jsonOb);
-      break;
+      return setBusinessParameterValues(prpdStmt, jsonOb);
+    case "review_az":
+    case "review_nv":
+    case "review_nc":
+      return setReviewParameterValues(prpdStmt, jsonOb, userIdMap, busIdMap);
     default:
       throw new IllegalArgumentException("Unknown table: " + tableName);
     }
   }
+  
+  private final Map<String, Integer> userIdMap = new HashMap<String, Integer>();
+  
+  private String userIdSelectQuery = "SELECT id_original_usr, id_usr FROM User";
+  
+  private void pupulateUserIdMap() throws SQLException {
+    try (PreparedStatement stmt = mConn.prepareStatement(userIdSelectQuery);
+        ResultSet rs = stmt.executeQuery()) {
+      while (rs.next()) {
+        userIdMap.put(rs.getString(1), rs.getInt(2));
+      }
+    }
+  }
+  
+  private final Map<String, Integer> busIdMap = new HashMap<String, Integer>();
+  
+  private String busIdSelectQuery = "SELECT id_original_bus, id_bus FROM Business "
+      + "where state_bus = ?";
+  
+  private void pupulateBusIdMap(String tableName) throws SQLException {
+    try (PreparedStatement stmt = mConn.prepareStatement(busIdSelectQuery)) {
+      switch (tableName) {
+      case "review_az":
+        stmt.setString(1, "AZ");
+        break;
+      case "review_nv":
+        stmt.setString(1, "NV");
+        break;
+      case "review_nc":
+        stmt.setString(1, "NC");
+        break;
+      default:
+        throw new IllegalArgumentException("Unknown table: " + tableName);
+      }
 
+      try (ResultSet rs = stmt.executeQuery()) {
+        while (rs.next()) {
+          busIdMap.put(rs.getString(1), rs.getInt(2));
+        }
+      }
+    }
+  }
+  
   public void insert(String filename, String tableName) throws FileNotFoundException, IOException,
       SQLException, JSONException, ParseException {
+    if (tableName.startsWith("review")) {
+      if (userIdMap.isEmpty()) {
+        pupulateUserIdMap();
+      }
+      if (busIdMap.isEmpty()) {
+        pupulateBusIdMap(tableName);
+      }
+    }
+    
     mConn.setAutoCommit(false);
-
     try (BufferedReader br = new BufferedReader(new FileReader(filename));
         PreparedStatement prpdStmt = mConn.prepareStatement(getInsertQuery(tableName))) {
       // Each line is in json format (e.g., resources/user_sample.json)
       int insertedSoFar = 0;
       for (String line = br.readLine(); line != null; line = br.readLine()) {
         JSONObject jsonOb = new JSONObject(line);
-        setParameterValues(tableName, prpdStmt, jsonOb);
-        prpdStmt.addBatch();
-        if (insertedSoFar++ % 10000 == 0) {
-          prpdStmt.executeBatch();
-          mConn.commit();
-          System.out.println("Inserted so far: " + insertedSoFar);
+        if (setParameterValues(tableName, prpdStmt, jsonOb)) {
+          prpdStmt.addBatch();
+          if (insertedSoFar++ % 10000 == 0) {
+            prpdStmt.executeBatch();
+            mConn.commit();
+            System.out.println("Inserted so far: " + insertedSoFar);
+          }
         }
       }
       prpdStmt.executeBatch(); // Left overs

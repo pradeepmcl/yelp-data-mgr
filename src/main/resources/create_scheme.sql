@@ -77,3 +77,14 @@ CREATE INDEX idx_date_raz ON review_nv(date_raz);
 ALTER TABLE review_nc ADD CONSTRAINT fk_user_id_nc FOREIGN KEY (user_id_raz) REFERENCES user(id_usr);
 ALTER TABLE review_nc ADD CONSTRAINT fk_bus_id_nc FOREIGN KEY (bus_id_raz) REFERENCES business(id_bus);
 CREATE INDEX idx_date_raz ON review_nc(date_raz);
+
+CREATE TABLE Business_Categories (
+  id_cat MEDIUMINT NOT NULL AUTO_INCREMENT,
+  bus_id_cat MEDIUMINT NOT NULL,
+  category_cat VARCHAR(50) NOT NULL,
+  PRIMARY KEY(id_cat)
+);
+
+ALTER TABLE business_categories ADD CONSTRAINT fk_bus_id_cat FOREIGN KEY (bus_id_cat) REFERENCES business(id_bus);
+
+CREATE INDEX idx_category_cat ON business_categories(category_cat);

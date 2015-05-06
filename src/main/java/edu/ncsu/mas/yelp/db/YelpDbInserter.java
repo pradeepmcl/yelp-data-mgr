@@ -10,6 +10,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -17,6 +18,7 @@ import java.text.SimpleDateFormat;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -49,7 +51,7 @@ public class YelpDbInserter implements AutoCloseable {
       + "compliments_photos_usr, compliments_hot_usr, compliments_cool_usr, compliments_more_usr) "
       + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-  private boolean setUserParameterValues(PreparedStatement prpdStmt, JSONObject userOb)
+  private int setUserParameterValues(PreparedStatement prpdStmt, JSONObject userOb)
       throws JSONException, SQLException, ParseException {
     prpdStmt.setString(1, userOb.getString("user_id"));
     prpdStmt.setString(2, userOb.getString("name"));
@@ -80,14 +82,15 @@ public class YelpDbInserter implements AutoCloseable {
       }
     }
     
-    return true;
+    prpdStmt.addBatch();
+    return 1;
   }
   
   private final String businessInsertQuery = "INSERT INTO Business(id_original_bus, name_bus, "
       + "type_bus, city_bus, state_bus, address_bus, open_bus, review_count_bus, stars_bus, "
       + "latitude_bus, longitude_bus) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
   
-  private boolean setBusinessParameterValues(PreparedStatement prpdStmt, JSONObject busOb)
+  private int setBusinessParameterValues(PreparedStatement prpdStmt, JSONObject busOb)
       throws JSONException, SQLException, ParseException {
     String[] fieldNames = { "business_id", "name", "type", "city", "state" };
     for (int i = 0; i < fieldNames.length; i++) {
@@ -106,7 +109,8 @@ public class YelpDbInserter implements AutoCloseable {
     prpdStmt.setDouble(10, busOb.getDouble("latitude"));
     prpdStmt.setDouble(11, busOb.getDouble("longitude"));
     
-    return true;
+    prpdStmt.addBatch();
+    return 1;
   }
   
   private final DateFormat reviewDateFormatter = new SimpleDateFormat("yyyy-MM-dd");
@@ -115,11 +119,11 @@ public class YelpDbInserter implements AutoCloseable {
       + "bus_id_raz, date_raz, type_raz, stars_raz, votes_funny_raz, votes_useful_raz, "
       + "votes_cool_raz, text_raz) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
   
-  private boolean setReviewParameterValues(PreparedStatement prpdStmt, JSONObject reviewOb,
+  private int setReviewParameterValues(PreparedStatement prpdStmt, JSONObject reviewOb,
       Map<String, Integer> userIdMap, Map<String, Integer> busIdMap) throws JSONException,
       SQLException, ParseException {
     if (!busIdMap.containsKey(reviewOb.get("business_id"))) {
-      return false;
+      return 0;
     }
     
     prpdStmt.setString(1, reviewOb.getString("review_id"));
@@ -137,7 +141,30 @@ public class YelpDbInserter implements AutoCloseable {
     
     prpdStmt.setString(10, reviewOb.getString("text"));
     
-    return true;
+    prpdStmt.addBatch();
+    return 1;
+  }
+  
+  private final String businessCategoriesInsertQuery = "INSERT INTO Business_Categories("
+      + "bus_id_cat, category_cat) VALUES(?, ?)";
+  
+  // TODO
+  private int setBusinessCategoriesParameterValues(PreparedStatement prpdStmt,
+      JSONObject busOb, Map<String, Integer> busIdMap) throws JSONException, SQLException,
+      ParseException {
+    prpdStmt.setInt(1, busIdMap.get(busOb.getString("business_id")));
+    if (busOb.has("categories")) {
+      JSONArray catJsonArray = busOb.getJSONArray("categories");
+      int insertCount = 0;
+      for (int i = 0; i < catJsonArray.length(); i++) {
+        // System.out.println(catJsonArray.getString(i));
+        prpdStmt.setString(2, catJsonArray.getString(i));
+        prpdStmt.addBatch();
+        insertCount++;
+      }
+      return insertCount;
+    }
+    return 0;
   }
   
   private String getInsertQuery(String tableName) {
@@ -153,12 +180,14 @@ public class YelpDbInserter implements AutoCloseable {
       return reviewInsertQuery.replaceFirst("Review_XX", "Review_NV");
     case "review_nc":
       return reviewInsertQuery.replaceFirst("Review_XX", "Review_NC");
+    case "business_categories":
+      return businessCategoriesInsertQuery;
     default:
       throw new IllegalArgumentException("Unknown table: " + tableName);
     }
   }
 
-  private boolean setParameterValues(String tableName, PreparedStatement prpdStmt, JSONObject jsonOb)
+  private int setParameterValues(String tableName, PreparedStatement prpdStmt, JSONObject jsonOb)
       throws JSONException, SQLException, ParseException {
     tableName = tableName.toLowerCase();
     switch (tableName) {
@@ -170,6 +199,8 @@ public class YelpDbInserter implements AutoCloseable {
     case "review_nv":
     case "review_nc":
       return setReviewParameterValues(prpdStmt, jsonOb, userIdMap, busIdMap);
+    case "business_categories":
+      return setBusinessCategoriesParameterValues(prpdStmt, jsonOb, busIdMap);
     default:
       throw new IllegalArgumentException("Unknown table: " + tableName);
     }
@@ -217,6 +248,18 @@ public class YelpDbInserter implements AutoCloseable {
     }
   }
   
+  private String allBusIdSelectQuery = "SELECT id_original_bus, id_bus FROM Business";
+  
+  private void pupulateBusIdMap() throws SQLException {
+    try (Statement stmt = mConn.createStatement()) {
+      try (ResultSet rs = stmt.executeQuery(allBusIdSelectQuery)) {
+        while (rs.next()) {
+          busIdMap.put(rs.getString(1), rs.getInt(2));
+        }
+      }
+    }
+  }
+
   public void insert(String filename, String tableName) throws FileNotFoundException, IOException,
       SQLException, JSONException, ParseException {
     if (tableName.startsWith("review")) {
@@ -226,21 +269,25 @@ public class YelpDbInserter implements AutoCloseable {
       if (busIdMap.isEmpty()) {
         pupulateBusIdMap(tableName);
       }
+    } else if (tableName.equalsIgnoreCase("business_categories")) {
+      pupulateBusIdMap();
     }
     
     mConn.setAutoCommit(false);
     try (BufferedReader br = new BufferedReader(new FileReader(filename));
         PreparedStatement prpdStmt = mConn.prepareStatement(getInsertQuery(tableName))) {
       // Each line is in json format (e.g., resources/user_sample.json)
-      int insertedSoFar = 0;
+      int batchedSoFar = 0;
       for (String line = br.readLine(); line != null; line = br.readLine()) {
         JSONObject jsonOb = new JSONObject(line);
-        if (setParameterValues(tableName, prpdStmt, jsonOb)) {
-          prpdStmt.addBatch();
-          if (insertedSoFar++ % 10000 == 0) {
+        int batchCount = setParameterValues(tableName, prpdStmt, jsonOb);
+        if (batchCount > 0) {
+          batchedSoFar += batchCount;
+          if (batchedSoFar > 10000) {
             prpdStmt.executeBatch();
             mConn.commit();
-            System.out.println("Inserted so far: " + insertedSoFar);
+            System.out.println("Inserted in this batch: " + batchedSoFar);
+            batchedSoFar = 0;
           }
         }
       }

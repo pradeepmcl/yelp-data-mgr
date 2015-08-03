@@ -26,8 +26,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Divides a set of geo coordinates into grids. Same as GridComputer, but the
- * input file is in a different format.
+ * Divides a set of geo coordinates into grids. Same as GridComputer2 in TwitterGraphBuilder
+ * project, but the input file is in a different format.
  * 
  * @author pmuruka
  *
@@ -37,51 +37,53 @@ public class GridComputer {
   String inputFilename;
   String outputFilename;
   Double gridLength;
-  
+
   ConcurrentMap<Long, Double[]> idToLatLon = new ConcurrentHashMap<Long, Double[]>();
-  ConcurrentMap<Long, Long> idToTweetId = new ConcurrentHashMap<Long, Long>();
+  ConcurrentMap<Long, Long> idToBusId = new ConcurrentHashMap<Long, Long>();
   ConcurrentNavigableMap<Double, Set<Long>> latToId = new ConcurrentSkipListMap<Double, Set<Long>>();
   ConcurrentNavigableMap<Double, Set<Long>> lonToId = new ConcurrentSkipListMap<Double, Set<Long>>();
-  
+
   public GridComputer(String inputFilename, String outputFilename, Double gridLength) {
     this.inputFilename = inputFilename;
     this.outputFilename = outputFilename;
     this.gridLength = gridLength;
   }
-  
+
   public static void main(String[] args) throws FileNotFoundException, IOException,
       InterruptedException, ExecutionException {
     String inFilename = args[0];
-    String outFilename = args[1];
-    Double gridLength = Double.parseDouble(args[2]);
+    String delimeter = args[1];
+    String outFilename = args[2];
+    Double gridLength = Double.parseDouble(args[3]);
 
     GridComputer gridComputer = new GridComputer(inFilename, outFilename, gridLength);
 
-    gridComputer.readInputFile();
-    
-    gridComputer.divideIntoGrids();;
+    gridComputer.readInputFile(delimeter);
+
+    gridComputer.divideIntoGrids();
+    ;
   }
-  
+
   /**
-   * 1 degree of latitude ~= 69 miles 
-   * 1 degree of longitude ~= cos(latitude)*69 miles
+   * 1 degree of latitude ~= 69 miles 1 degree of longitude ~= cos(latitude)*69 miles
    * 
    * Source: http://tinyurl.com/n4nfr95
-   * @throws ExecutionException 
-   * @throws InterruptedException 
    * 
-   * @throws IOException 
+   * @throws ExecutionException
+   * @throws InterruptedException
+   * 
+   * @throws IOException
    */
   private void divideIntoGrids() throws InterruptedException, ExecutionException, IOException {
     List<String> outList = Collections.synchronizedList(new ArrayList<String>());
-    
+
     ExecutorService gridCompSer = Executors.newFixedThreadPool(Runtime.getRuntime()
         .availableProcessors());
     CompletionService<String> gridCompCompletionSerive = new ExecutorCompletionService<String>(
         gridCompSer);
     int submitCount = 100000;
     long taskCount = 0;
-    
+
     // Compute bounding box
     Double lowestLat = latToId.firstKey();
     Double highestLat = latToId.lastKey();
@@ -97,11 +99,11 @@ public class GridComputer {
             + (gridLength / (Math.abs(Math.cos(Math.toRadians(southWestLon)) * 69)));
 
         gridCompCompletionSerive.submit(new GridComputationCallable(southWestLat, southWestLon,
-            northEastLat, northEastLon/*, taskCount*/));
+            northEastLat, northEastLon/* , taskCount */));
         if (++taskCount % submitCount == 0) {
           for (int i = 0; i < submitCount; i++) {
             String result = gridCompCompletionSerive.take().get();
-            if (result.length() > 0) {
+            if (result.length() > 1) { // If only newline, that's empty too
               outList.add(result);
             }
           }
@@ -120,32 +122,35 @@ public class GridComputer {
       southWestLat = northEastLat;
       southWestLon = lowestLon;
     } while (southWestLat <= highestLat);
-    
+
     for (int i = 0; i < taskCount % submitCount; i++) {
-      outList.add(gridCompCompletionSerive.take().get());
+      String result = gridCompCompletionSerive.take().get();
+      if (result.length() > 1) { // If only newline, that's empty too
+        outList.add(result);
+      }
     }
     System.out.println("Completed " + taskCount + " (all) tasks");
-    try (PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(outputFilename,
-        true)))) {
+    try (PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(outputFilename, true)))) {
       Iterator<String> i = outList.iterator();
       while (i.hasNext()) {
         out.println(i.next());
       }
       outList.clear();
     }
-    
+
     gridCompSer.shutdown();
   }
-  
+
   private class GridComputationCallable implements Callable<String> {
     final Double southWestLat;
     final Double southWestLon;
     final Double northEastLat;
     final Double northEastLon;
+
     // final long taskNum;
 
     public GridComputationCallable(Double southWestLat, Double southWestLon, Double northEastLat,
-        Double northEastLon/*, long taskNum*/) {
+        Double northEastLon/* , long taskNum */) {
       this.southWestLat = southWestLat;
       this.southWestLon = southWestLon;
       this.northEastLat = northEastLat;
@@ -161,15 +166,15 @@ public class GridComputer {
       if (pointsInGrid.size() > 0) {
         result.append(southWestLat + "," + southWestLon + "," + northEastLat + "," + northEastLon);
         for (Long pointInGrid : pointsInGrid) {
-          Long tweetId = idToTweetId.get(pointInGrid);
+          Long busId = idToBusId.get(pointInGrid);
           Double[] latLon = idToLatLon.get(pointInGrid);
-          result.append("," + tweetId + "," + latLon[0] + "," + latLon[1]);
+          result.append("," + busId + "," + latLon[0] + "," + latLon[1]);
         }
       }
       return result.toString();
     }
   }
-  
+
   private Set<Long> findAllPointsInAGrid(Double southWestLat, Double southWestLon,
       Double northEastLat, Double northEastLon) {
     Collection<Set<Long>> latIdCol = latToId.subMap(southWestLat, true, northEastLat, false)
@@ -191,17 +196,17 @@ public class GridComputer {
     return latIdsSet;
   }
 
-  private void readInputFile() throws FileNotFoundException, IOException {
+  private void readInputFile(String delimeter) throws FileNotFoundException, IOException {
     try (BufferedReader br = new BufferedReader(new FileReader(inputFilename))) {
       String line = br.readLine(); // Skip first line (header)
       line = br.readLine();
-      
+
       Long id = 0L;
       while (line != null) {
-        String[] lineParts = line.split(",|;");
-        
-        idToTweetId.put(id, Long.parseLong(lineParts[0]));
-        
+        String[] lineParts = line.split(delimeter);
+
+        idToBusId.put(id, Long.parseLong(lineParts[0]));
+
         Double lat = Double.parseDouble(lineParts[1]);
         Double lon = Double.parseDouble(lineParts[2]);
 
